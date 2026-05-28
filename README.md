@@ -9,7 +9,6 @@ Last.fm scrobbling for [`cliamp`](https://www.cliamp.stream/).
 - Scrobbles after **50%** of a track by default.
 - Configurable scrobble threshold.
 - `*` loves or un-loves the current track.
-- Loving a not-yet-scrobbled current track immediately scrobbles it too.
 - `&` toggles automatic scrobbling for the current `cliamp` session.
 - Retryable scrobble failures are cached and retried later.
 - No Last.fm now-playing updates.
@@ -35,8 +34,6 @@ chmod +x ~/.config/cliamp/plugins/lastfm-auth
 
 > [!NOTE]
 > `cliamp plugins install` only installs `cliamp-scrobble.lua`. It does not install extra repository files, so `lastfm-auth` needs the separate `curl` command above.
-
-Restart `cliamp` after installing the plugin.
 
 <details>
 <summary>Other install methods</summary>
@@ -90,6 +87,8 @@ The helper will:
 - open Last.fm in your browser
 - ask you to approve the app
 - write the plugin config to `~/.config/cliamp/config.toml`
+
+Restart `cliamp` after installing the plugin.
 
 If the browser cannot open automatically:
 
