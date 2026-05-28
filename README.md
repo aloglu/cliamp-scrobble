@@ -39,7 +39,7 @@ Manual file install:
 
 ```bash
 mkdir -p ~/.config/cliamp/plugins
-cp lastfm-scrobbler.lua ~/.config/cliamp/plugins/
+cp cliamp-scrobble.lua ~/.config/cliamp/plugins/
 cp lastfm-auth ~/.config/cliamp/plugins/
 chmod +x ~/.config/cliamp/plugins/lastfm-auth
 ```
