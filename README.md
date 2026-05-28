@@ -193,3 +193,6 @@ If `*` loves the current track before the scrobble threshold, the plugin immedia
 - Successful scrobbles show a `cliamp` message with the updated Last.fm play count when available.
 - Retryable failures are stored in `~/.config/cliamp/lastfm-scrobbler-cache.json`.
 - Plugin logs are written to `~/.config/cliamp/plugins.log`.
+
+# License
+Released under the [MIT License](https://github.com/aloglu/cliamp-scrobble/blob/main/LICENSE)
