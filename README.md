@@ -193,5 +193,5 @@ If `*` loves the current track before the scrobble threshold, the plugin immedia
 - Retryable failures are stored in `~/.config/cliamp/lastfm-scrobbler-cache.json`.
 - Plugin logs are written to `~/.config/cliamp/plugins.log`.
 
-# License
+## License
 Released under the [MIT License](https://github.com/aloglu/cliamp-scrobble/blob/main/LICENSE).
