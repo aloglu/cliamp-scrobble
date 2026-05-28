@@ -195,4 +195,4 @@ If `*` loves the current track before the scrobble threshold, the plugin immedia
 - Plugin logs are written to `~/.config/cliamp/plugins.log`.
 
 # License
-Released under the [MIT License](https://github.com/aloglu/cliamp-scrobble/blob/main/LICENSE)
+Released under the [MIT License](https://github.com/aloglu/cliamp-scrobble/blob/main/LICENSE).
