@@ -18,11 +18,25 @@ Last.fm scrobbling for [`cliamp`](https://www.cliamp.stream/).
 
 ### 1. Install
 
+Install the plugin first:
+
 ```bash
 cliamp plugins install aloglu/cliamp-scrobble
 ```
 
-Restart `cliamp` after installing.
+Then install the auth helper:
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/aloglu/cliamp-scrobble/HEAD/lastfm-auth \
+  -o ~/.config/cliamp/plugins/lastfm-auth
+chmod +x ~/.config/cliamp/plugins/lastfm-auth
+```
+
+> [!NOTE]
+> `cliamp plugins install` only installs `cliamp-scrobble.lua`. It does not install extra repository files, so `lastfm-auth` needs the separate `curl` command above.
+
+Restart `cliamp` after installing the plugin.
 
 <details>
 <summary>Other install methods</summary>
