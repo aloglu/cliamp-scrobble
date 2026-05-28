@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""Get a Last.fm session key for the cliamp Last.fm scrobbler."""
+
+from __future__ import annotations
+
+import argparse
+import getpass
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+
+API_URL = "https://ws.audioscrobbler.com/2.0/"
+AUTH_URL = "https://www.last.fm/api/auth/"
+CONFIG_PATH = Path.home() / ".config" / "cliamp" / "config.toml"
+PLUGIN_SECTION = "plugins.cliamp-scrobble"
+LEGACY_PLUGIN_SECTION = "plugins.lastfm-scrobbler"
+
+
+def api_sig(params: dict[str, str], secret: str) -> str:
+    payload = "".join(
+        f"{key}{params[key]}"
+        for key in sorted(params)
+        if key not in {"format", "callback", "api_sig"}
+    )
+    return hashlib.md5((payload + secret).encode("utf-8")).hexdigest()
+
+
+def lastfm_call(params: dict[str, str], secret: str | None = None) -> dict:
+    values = dict(params)
+    values["format"] = "json"
+    if secret is not None:
+        values["api_sig"] = api_sig(values, secret)
+
+    body = urllib.parse.urlencode(values).encode("utf-8")
+    request = urllib.request.Request(API_URL, data=body, method="POST")
+
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            response_body = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        response_body = exc.read().decode("utf-8", errors="replace")
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"Last.fm request failed: {exc.reason}") from exc
+
+    try:
+        decoded = json.loads(response_body)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Last.fm returned invalid JSON: {response_body}") from exc
+
+    if "error" in decoded:
+        raise SystemExit(
+            f"Last.fm error {decoded.get('error')}: {decoded.get('message', 'unknown error')}"
+        )
+
+    return decoded
+
+
+def get_token(api_key: str, api_secret: str) -> str:
+    decoded = lastfm_call(
+        {
+            "method": "auth.getToken",
+            "api_key": api_key,
+        },
+        api_secret,
+    )
+
+    token = decoded.get("token")
+    if not token:
+        raise SystemExit(f"Last.fm did not return a token: {decoded}")
+    return token
+
+
+def get_session(api_key: str, api_secret: str, token: str) -> tuple[str, str | None]:
+    decoded = lastfm_call(
+        {
+            "method": "auth.getSession",
+            "api_key": api_key,
+            "token": token,
+        },
+        api_secret,
+    )
+
+    session = decoded.get("session")
+    if not isinstance(session, dict) or not session.get("key"):
+        raise SystemExit(f"Last.fm did not return a session key: {decoded}")
+
+    return session["key"], session.get("name")
+
+
+def open_browser(url: str) -> bool:
+    opener = shutil.which("xdg-open")
+    if not opener:
+        return False
+
+    try:
+        subprocess.Popen(
+            [opener, url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return True
+    except OSError:
+        return False
+
+
+def config_block(api_key: str, api_secret: str, session_key: str) -> str:
+    return f"""[plugins.cliamp-scrobble]
+api_key = "{api_key}"
+api_secret = "{api_secret}"
+session_key = "{session_key}"
+enabled = true
+threshold = 0.5
+poll_secs = 2
+
+"""
+
+
+def replace_plugin_section(config: str, block: str) -> str:
+    pattern = re.compile(
+        rf"(?ms)^\[(?:{re.escape(PLUGIN_SECTION)}|{re.escape(LEGACY_PLUGIN_SECTION)})\]\n.*?(?=^\[[^\]]+\]\n|\Z)"
+    )
+
+    if pattern.search(config):
+        return pattern.sub(block, config)
+
+    suffix = "" if config.endswith("\n") or config == "" else "\n"
+    return config + suffix + "\n" + block
+
+
+def write_config(api_key: str, api_secret: str, session_key: str, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    updated = replace_plugin_section(existing, config_block(api_key, api_secret, session_key))
+    path.write_text(updated, encoding="utf-8")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Authorize the cliamp Last.fm scrobbler and get a session key."
+    )
+    parser.add_argument("--api-key", help="Last.fm API key")
+    parser.add_argument("--api-secret", help="Last.fm shared secret")
+    parser.add_argument(
+        "--write-config",
+        action="store_true",
+        help=f"write the resulting plugin block to {CONFIG_PATH}",
+    )
+    parser.add_argument(
+        "--config",
+        default=str(CONFIG_PATH),
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="print the authorization URL instead of opening a browser",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+
+    api_key = args.api_key or input("Last.fm API key: ").strip()
+    api_secret = args.api_secret or getpass.getpass("Last.fm shared secret: ").strip()
+
+    if not api_key:
+        raise SystemExit("API key is required")
+    if not api_secret:
+        raise SystemExit("API secret is required")
+
+    print("Requesting Last.fm auth token...")
+    token = get_token(api_key, api_secret)
+    auth_url = f"{AUTH_URL}?{urllib.parse.urlencode({'api_key': api_key, 'token': token})}"
+
+    print()
+    if args.no_open or not open_browser(auth_url):
+        print("Open this URL in your browser:")
+        print(auth_url)
+    else:
+        print("Opened Last.fm authorization in your browser.")
+
+    print()
+    input("Approve access in Last.fm, then press Enter here to continue...")
+
+    print("Exchanging token for session key...")
+    session_key, username = get_session(api_key, api_secret, token)
+
+    print()
+    if username:
+        print(f"Authorized Last.fm user: {username}")
+    print("Session key:")
+    print(session_key)
+    print()
+
+    block = config_block(api_key, api_secret, session_key)
+    if args.write_config:
+        config_path = Path(args.config).expanduser()
+        write_config(api_key, api_secret, session_key, config_path)
+        print(f"Wrote plugin config to {config_path}")
+    else:
+        print("Add this to ~/.config/cliamp/config.toml:")
+        print()
+        print(block.rstrip())
+
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        print("\nCanceled.", file=sys.stderr)
+        raise SystemExit(130)
