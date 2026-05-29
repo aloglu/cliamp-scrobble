@@ -11,7 +11,8 @@ Last.fm scrobbling for [`cliamp`](https://www.cliamp.stream/).
 - `*` loves or un-loves the current track.
 - `&` toggles automatic scrobbling for the current `cliamp` session.
 - Retryable scrobble failures are cached and retried later.
-- No Last.fm now-playing updates.
+- Optional Last.fm now-playing updates.
+- Notifications are color-coded by status.
 
 ## Quick Start
 
@@ -107,6 +108,7 @@ api_key = "$LASTFM_API_KEY"
 api_secret = "$LASTFM_API_SECRET"
 session_key = "$LASTFM_SESSION_KEY"
 enabled = true
+now_playing = false
 threshold = 0.5
 poll_secs = 2
 ```
@@ -141,11 +143,20 @@ api_key = "$LASTFM_API_KEY"
 api_secret = "$LASTFM_API_SECRET"
 session_key = "$LASTFM_SESSION_KEY"
 enabled = true
+now_playing = false
 threshold = 0.5
 poll_secs = 2
 ```
 
 `cliamp` supports environment-variable interpolation in `config.toml`, so secrets can stay in your shell environment.
+
+`now_playing` enables Last.fm "Scrobbling now" updates:
+
+```toml
+now_playing = true
+```
+
+When enabled, the plugin sends now-playing updates as soon as a valid track starts or resumes. `threshold` still only controls when the final scrobble is submitted.
 
 ### Scrobble Timing
 
@@ -182,6 +193,7 @@ Inside `cliamp`:
 | `&` | toggle automatic scrobbling for this session |
 
 The `&` toggle only affects automatic scrobbling. You can still love or un-love tracks with `*` while scrobbling is disabled.
+If `now_playing` is enabled, `&` also pauses now-playing updates for this `cliamp` session.
 
 If `*` loves the current track before the scrobble threshold, the plugin immediately scrobbles that play session and marks it as handled.
 
@@ -189,6 +201,7 @@ If `*` loves the current track before the scrobble threshold, the plugin immedia
 
 - Forward seeks do not immediately count as listened time.
 - Tracks shorter than 30 seconds are ignored.
+- Now-playing failures are logged but not cached or retried.
 - Successful scrobbles show a `cliamp` message with the updated Last.fm play count when available.
 - Retryable failures are stored in `~/.config/cliamp/lastfm-scrobbler-cache.json`.
 - Plugin logs are written to `~/.config/cliamp/plugins.log`.

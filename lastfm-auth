@@ -119,6 +119,7 @@ api_key = "{api_key}"
 api_secret = "{api_secret}"
 session_key = "{session_key}"
 enabled = true
+now_playing = false
 threshold = 0.5
 poll_secs = 2
 

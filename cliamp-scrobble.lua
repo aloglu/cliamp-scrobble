@@ -37,6 +37,13 @@ local function config_value(key)
     return legacy_config(key)
 end
 
+local function config_bool(key, default)
+    local value = config_value(key)
+    if value == nil then return default end
+    if value == false or value == "false" or value == "0" then return false end
+    return true
+end
+
 local CACHE_PATH = config_value("cache_path") or "/home/bd/.config/cliamp/lastfm-scrobbler-cache.json"
 
 local api_key = config_value("api_key")
@@ -44,15 +51,8 @@ local api_secret = config_value("api_secret")
 local session_key = config_value("session_key")
 local threshold = tonumber(config_value("threshold")) or 0.5
 local poll_secs = tonumber(config_value("poll_secs")) or 2
-local enabled = config_value("enabled")
-
-if enabled == nil then
-    enabled = true
-elseif enabled == false or enabled == "false" or enabled == "0" then
-    enabled = false
-else
-    enabled = true
-end
+local enabled = config_bool("enabled", true)
+local now_playing_enabled = config_bool("now_playing", false)
 
 if threshold <= 0 then threshold = 0.5 end
 if threshold > 1 then threshold = 1 end
@@ -61,6 +61,22 @@ if poll_secs < 1 then poll_secs = 1 end
 local session = nil
 local timer_id = nil
 local lastfm_username = nil
+
+local function color(text, hex)
+    local r, g, b = string.match(hex, "^#?(%x%x)(%x%x)(%x%x)$")
+    if not r then return tostring(text) end
+
+    return "\27[38;2;"
+        .. tostring(tonumber(r, 16)) .. ";"
+        .. tostring(tonumber(g, 16)) .. ";"
+        .. tostring(tonumber(b, 16)) .. "m"
+        .. tostring(text)
+        .. "\27[0m"
+end
+
+local function lastfm_message(text, hex)
+    return color("Last.fm", "#D92323") .. ": " .. color(text, hex)
+end
 
 local function message(text)
     if cliamp.message then
@@ -359,6 +375,36 @@ local function scrobble_params(item, prefix)
     return params
 end
 
+local function now_playing_params(item)
+    local params = {
+        artist = item.artist,
+        track = item.track,
+    }
+
+    if trim(item.album) then
+        params.album = item.album
+    end
+
+    if item.duration and tonumber(item.duration) then
+        params.duration = tostring(math.floor(tonumber(item.duration)))
+    end
+
+    return params
+end
+
+local function send_now_playing(item)
+    if not item then return false end
+
+    local ok, err = lastfm_post("track.updateNowPlaying", now_playing_params(item))
+    if ok then
+        log_info("Last.fm now playing " .. item.artist .. " - " .. item.track)
+        return true
+    end
+
+    log_warn("Last.fm now playing failed: " .. (err and err.message or "unknown error"))
+    return false
+end
+
 local function send_scrobble(item)
     local ok, result = lastfm_post("track.scrobble", scrobble_params(item))
     if not ok then return false, result end
@@ -444,9 +490,9 @@ local function scrobble_item(item, show_message)
         if show_message then
             if count then
                 local noun = count == 1 and "scrobble" or "scrobbles"
-                message("Last.fm: scrobbled " .. item.artist .. " - " .. item.track .. " (" .. tostring(count) .. " " .. noun .. ")")
+                message(lastfm_message("scrobbled " .. item.artist .. " - " .. item.track .. " (" .. tostring(count) .. " " .. noun .. ")", "#00FF7F"))
             else
-                message("Last.fm: scrobbled " .. item.artist .. " - " .. item.track)
+                message(lastfm_message("scrobbled " .. item.artist .. " - " .. item.track, "#00FF7F"))
             end
         end
         log_info("Last.fm scrobbled " .. item.artist .. " - " .. item.track)
@@ -526,6 +572,7 @@ local function start_session(track)
         last_checked = now(),
         started_at = now(),
         scrobbled = false,
+        now_playing_sent = false,
     }
 
     if valid_for_scrobble(session) then
@@ -559,14 +606,26 @@ local function player_position()
 end
 
 local function maybe_scrobble()
-    if not session or session.scrobbled or not enabled then return end
+    if not session or not enabled then return end
     if not valid_for_scrobble(session) then return end
 
     local state = player_state()
     local position = player_position()
     local checked_at = now()
 
-    if state ~= "playing" or not position then
+    if state ~= "playing" then
+        session.last_position = position
+        session.last_checked = checked_at
+        session.now_playing_sent = false
+        return
+    end
+
+    if now_playing_enabled and not session.now_playing_sent then
+        send_now_playing(session_item())
+        session.now_playing_sent = true
+    end
+
+    if not position then
         session.last_position = position
         session.last_checked = checked_at
         return
@@ -584,6 +643,8 @@ local function maybe_scrobble()
     session.last_position = position
     session.last_checked = checked_at
 
+    if session.scrobbled then return end
+
     if session.listened < (session.duration * threshold) then return end
 
     if scrobble_item(session_item(), true) then
@@ -596,14 +657,14 @@ end
 local function love_current_track()
     local track = current_track()
     if not trim(track.artist) or not trim(track.title) then
-        message("Last.fm: missing artist/title")
+        message(lastfm_message("missing artist/title", "#FF991C"))
         return
     end
 
     local loved, info_err = track_userloved(track)
     if loved == nil then
         local reason = info_err and info_err.message or "unknown error"
-        message("Last.fm love toggle failed")
+        message(lastfm_message("love toggle failed", "#FF991C"))
         log_warn("Last.fm love state lookup failed: " .. reason)
         return
     end
@@ -616,8 +677,8 @@ local function love_current_track()
 
     if ok then
         if loved then
-            message("Last.fm: un-loved " .. track.artist .. " - " .. track.title)
-            log_info("Last.fm un-loved " .. track.artist .. " - " .. track.title)
+            message(lastfm_message("unloved " .. track.artist .. " - " .. track.title, "#FC8EAC"))
+            log_info("Last.fm unloved " .. track.artist .. " - " .. track.title)
         else
             local forced_scrobble = false
             if is_current_session_track(track) and not session.scrobbled and valid_for_scrobble(session) then
@@ -629,18 +690,18 @@ local function love_current_track()
                 local count = track_userplaycount(track)
                 if count then
                     local noun = count == 1 and "scrobble" or "scrobbles"
-                    message("Last.fm: loved and scrobbled " .. track.artist .. " - " .. track.title .. " (" .. tostring(count) .. " " .. noun .. ")")
+                    message(lastfm_message("loved and scrobbled " .. track.artist .. " - " .. track.title .. " (" .. tostring(count) .. " " .. noun .. ")", "#00FF7F"))
                 else
-                    message("Last.fm: loved and scrobbled " .. track.artist .. " - " .. track.title)
+                    message(lastfm_message("loved and scrobbled " .. track.artist .. " - " .. track.title, "#00FF7F"))
                 end
             else
-                message("Last.fm: loved " .. track.artist .. " - " .. track.title)
+                message(lastfm_message("loved " .. track.artist .. " - " .. track.title, "#00FF7F"))
             end
             log_info("Last.fm loved " .. track.artist .. " - " .. track.title)
         end
     else
         local reason = err and err.message or "unknown error"
-        message("Last.fm love toggle failed")
+        message(lastfm_message("love toggle failed", "#FF991C"))
         log_warn("Last.fm love toggle failed: " .. reason)
     end
 end
@@ -648,10 +709,10 @@ end
 local function toggle_scrobbling()
     enabled = not enabled
     if enabled then
-        message("Last.fm scrobbling: enabled")
+        message(lastfm_message("scrobbling enabled", "#00FF7F"))
         log_info("Last.fm scrobbling enabled")
     else
-        message("Last.fm scrobbling: disabled")
+        message(lastfm_message("scrobbling disabled", "#FC8EAC"))
         log_info("Last.fm scrobbling disabled")
     end
 end
@@ -672,7 +733,7 @@ end)
 
 p:on("app.start", function()
     if configured() then
-        log_info("Last.fm scrobbler loaded; threshold=" .. tostring(threshold) .. ", poll_secs=" .. tostring(poll_secs))
+        log_info("Last.fm scrobbler loaded; threshold=" .. tostring(threshold) .. ", poll_secs=" .. tostring(poll_secs) .. ", now_playing=" .. tostring(now_playing_enabled))
     else
         log_warn("Last.fm scrobbler loaded without complete credentials")
     end
